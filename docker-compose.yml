@@ -1,0 +1,20 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: '123456'
+      MYSQL_DATABASE: 'social'
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: always
+
+  # redis:
+  #   image: redis:alpine
+  #   ports:
+  #     - '6379:6379'
+  #   restart: always
+  #
+volumes:
+  mysql_data:
