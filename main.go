@@ -38,13 +38,18 @@ type Comment struct {
 	OldCommentID  int64
 }
 
-func worker(db *sql.DB, comments <-chan []Comment, wg *sync.WaitGroup) {
+func worker(db *sql.DB, comments <-chan []Comment, wg *sync.WaitGroup, progress *int64, mutex *sync.Mutex) {
 	defer wg.Done()
 
 	for batch := range comments {
 		err := insertComments(db, batch)
 		if err != nil {
 			log.Printf("failed to insert batch: %v", err)
+		} else {
+			mutex.Lock()
+			*progress += int64(len(batch))
+			log.Printf("Progress: %d/%d rows inserted", *progress, totalRows)
+			mutex.Unlock()
 		}
 	}
 }
@@ -82,12 +87,15 @@ func main() {
 	}
 	defer db.Close()
 
+	var progress int64 = 0
+	var mutex sync.Mutex
+
 	wg := sync.WaitGroup{}
 	commentChannel := make(chan []Comment, numWorkers)
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go worker(db, commentChannel, &wg)
+		go worker(db, commentChannel, &wg, &progress, &mutex)
 	}
 
 	// generate and send data
