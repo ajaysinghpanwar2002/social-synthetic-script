@@ -12,37 +12,32 @@ import (
 )
 
 const (
-	totalRows       = 98325709  // Total rows to generate
-	batchSize       = 1000      // Number of rows per batch
-	numWorkers      = 4         // Number of parallel workers
-	averageComments = 9.52      // Average comments per user
-	maxComments     = 1520      // Max comments per user
-	totalUsers      = totalRows // int(averageComments)
+	totalRows  = 17611148  // Total rows to generate
+	batchSize  = 1000      // Number of rows per batch
+	numWorkers = 12        // Number of parallel workers
+	totalUsers = totalRows // int(averageReplies)
 )
 
 var (
-	states         = []string{"ACTIVE", "BLOCKED", "DELETED", "INVALID"}
-	stateWeights   = []int{95, 1, 3, 1} // Distribution percentages
-	refTypes       = []string{"REVIEW", "PARCHA"}
-	refTypeWeights = []int{99, 1} // Distribution percentages
+	states       = []string{"ACTIVE", "BLOCKED", "DELETED"}
+	stateWeights = []int{80, 10, 10} // Distribution percentages
 )
 
-type Comment struct {
-	Comment       string
+type Reply struct {
+	Reply         string
 	ReferenceType string
 	ReferenceID   string
 	UserID        int64
 	State         string
 	DateCreated   time.Time
 	DateUpdated   time.Time
-	OldCommentID  int64
 }
 
-func worker(db *sql.DB, comments <-chan []Comment, wg *sync.WaitGroup, progress *int64, mutex *sync.Mutex) {
+func worker(db *sql.DB, replies <-chan []Reply, wg *sync.WaitGroup, progress *int64, mutex *sync.Mutex) {
 	defer wg.Done()
 
-	for batch := range comments {
-		err := insertComments(db, batch)
+	for batch := range replies {
+		err := insertReplies(db, batch)
 		if err != nil {
 			log.Printf("failed to insert batch: %v", err)
 		} else {
@@ -54,13 +49,13 @@ func worker(db *sql.DB, comments <-chan []Comment, wg *sync.WaitGroup, progress 
 	}
 }
 
-func insertComments(db *sql.DB, comments []Comment) error {
-	query := "INSERT INTO comment (comment, reference_type, reference_id, user_id, state, date_created, date_updated, old_comment_id) VALUES "
-	values := make([]interface{}, 0, len(comments)*8)
+func insertReplies(db *sql.DB, replies []Reply) error {
+	query := "INSERT INTO reply (reply, reference_type, reference_id, user_id, state, date_created, date_updated) VALUES "
+	values := make([]interface{}, 0, len(replies)*7)
 
-	for _, comment := range comments {
-		query += "(?, ?, ?, ?, ?, ?, ?, ?),"
-		values = append(values, comment.Comment, comment.ReferenceType, comment.ReferenceID, comment.UserID, comment.State, comment.DateCreated, comment.DateUpdated, comment.OldCommentID)
+	for _, reply := range replies {
+		query += "(?, ?, ?, ?, ?, ?, ?),"
+		values = append(values, reply.Reply, reply.ReferenceType, reply.ReferenceID, reply.UserID, reply.State, reply.DateCreated, reply.DateUpdated)
 	}
 
 	query = query[:len(query)-1] // Remove trailing comma
@@ -91,44 +86,43 @@ func main() {
 	var mutex sync.Mutex
 
 	wg := sync.WaitGroup{}
-	commentChannel := make(chan []Comment, numWorkers)
+	replyChannel := make(chan []Reply, numWorkers)
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go worker(db, commentChannel, &wg, &progress, &mutex)
+		go worker(db, replyChannel, &wg, &progress, &mutex)
 	}
 
 	// generate and send data
 	for i := 0; i < totalRows/batchSize; i++ {
-		comments := generateComments(batchSize)
-		commentChannel <- comments
+		replies := generateReplies(batchSize)
+		replyChannel <- replies
 	}
 
-	close(commentChannel)
+	close(replyChannel)
 	wg.Wait()
 
 	fmt.Println("Data generated and inserted")
 }
 
-func generateComments(count int) []Comment {
-	comments := make([]Comment, count)
+func generateReplies(count int) []Reply {
+	replies := make([]Reply, count)
 	for i := 0; i < count; i++ {
-		comments[i] = Comment{
-			Comment:       generateRandomText(),
-			ReferenceType: weightedRandomChoice(refTypes, refTypeWeights),
+		replies[i] = Reply{
+			Reply:         generateRandomText(),
+			ReferenceType: "COMMENT",
 			ReferenceID:   fmt.Sprintf("ref_%d", rand.Int63n(10000000)),
 			UserID:        rand.Int63n(totalUsers) + 1,
 			State:         weightedRandomChoice(states, stateWeights),
 			DateCreated:   randomTimestamp(),
 			DateUpdated:   randomTimestamp(),
-			OldCommentID:  rand.Int63n(1000000),
 		}
 	}
-	return comments
+	return replies
 }
 
 func generateRandomText() string {
-	return fmt.Sprintf("this is a random comment %d", rand.Int63n(10000000))
+	return fmt.Sprintf("this is a random reply %d", rand.Int63n(10000000))
 }
 
 func weightedRandomChoice(choices []string, weights []int) string {
